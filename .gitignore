@@ -1,0 +1,29 @@
+# Secrets
+.moodle_token
+.env
+*.key
+
+# Sync state and cache
+sync_state.json
+__pycache__/
+*.pyc
+
+# Downloaded course content
+courses/
+archive/
+
+# Lecture artefacts (large)
+*.pdf
+*.png
+*.jpg
+*.pptx
+*.docx
+
+# Personal sync logs
+quick_sync.py
+PLAN.md
+V3-DELTA.md
+v2-plan.md
+
+update_submission_log.py
+
