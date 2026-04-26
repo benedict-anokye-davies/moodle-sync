@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS chunks (
     document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
     page_number INTEGER NOT NULL,
     chunk_index INTEGER NOT NULL,
-    chunk_hash TEXT NOT NULL UNIQUE,
+    chunk_hash TEXT NOT NULL,
     text TEXT NOT NULL,
     module TEXT NOT NULL,
     lecture TEXT NOT NULL,
@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS index_runs (
     chunks_indexed INTEGER NOT NULL,
     ocr_pages INTEGER NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_chunks_hash ON chunks(chunk_hash);
 CREATE TRIGGER IF NOT EXISTS chunks_ai AFTER INSERT ON chunks BEGIN
   INSERT INTO chunks_fts(rowid, text) VALUES (new.id, new.text);
 END;
