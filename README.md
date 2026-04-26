@@ -1,55 +1,164 @@
 # moodle-sync
 
-Personal automation tool that mirrors University of Nottingham Moodle modules to local storage. Authenticates via the Moodle Mobile App token endpoint, walks every enrolled course, downloads slides and resources, and tracks coursework deadlines. Designed to be run nightly as a cron job with incremental sync state so only new content is fetched.
+Personal automation tool that mirrors University of Nottingham Moodle modules to local storage, then builds a local citation-first search index over downloaded lecture PDFs.
 
-Built because I got tired of manually checking five module pages every day to see what was new.
+Built because I got tired of manually checking five module pages every day to see what was new — and because finding the exact slide that taught a concept should not require spelunking through Moodle.
 
 ## What it does
+
+### Sync
 
 - Authenticates via `login/token.php` (Moodle Mobile App service)
 - Pulls the full enrolled-course list via `core_enrol_get_users_courses`
 - Walks each course's content tree via `core_course_get_contents`
-- Downloads new resources (slides, PDFs, links) into a structured local folder per module
+- Downloads new resources into a structured local folder per module
 - Tracks deadlines from `mod_assign_get_assignments`
-- Maintains a `sync_state.json` so re-runs skip already-fetched files
 
-## Layout
+### Search
 
-| File | What |
-|---|---|
-| `moodle_sync.py` | One-shot full sync. Prompts for credentials, saves a token, downloads everything. |
-| `daily_sync.py` | Cron entry point. Reads cached token, syncs only the active semester modules. |
-| `scrape_deadlines.py` | Pulls assignment deadlines and writes a structured list. |
-| `check_new.py` | Quick CLI to list the most recent additions across modules. |
-| `audit_moodle_sync_and_submissions.py` | Sanity-check that local state matches what's actually live on Moodle. |
-| `notion_helper.py` | Optional. Mirrors lecture metadata into a Notion database (off by default). |
+- Extracts PDF text with PyMuPDF
+- Stores document/page/chunk provenance in SQLite
+- Detects pages that probably need OCR without running OCR in M1
+- Indexes chunks with SQLite FTS5 BM25
+- Adds local vector search with a MiniLM provider when `sentence-transformers` is installed
+- Falls back to deterministic local hashing embeddings when MiniLM is unavailable
+- Fuses BM25 and vector ranks with reciprocal rank fusion
+- Returns exact module / lecture / filename / page citations
+- Supports Rich terminal output and `--json` for future Discord / Notion / Q&A layers
 
 ## Setup
 
 ```bash
 git clone https://github.com/benedict-anokye-davies/moodle-sync.git
 cd moodle-sync
-pip install requests
-python moodle_sync.py
+pip install -e .
 ```
 
-First run prompts for your Moodle username and password, exchanges them for a long-lived mobile API token, and caches it at `.moodle_token`. Subsequent runs reuse the token.
+For the stronger local embedding model:
 
-For nightly automation:
-
-```cron
-0 22 * * * cd /path/to/moodle-sync && python daily_sync.py >> sync.log 2>&1
+```bash
+pip install -e '.[embeddings]'
 ```
 
-## Why mobile token endpoint instead of scraping HTML
+First sync still uses the original credential flow:
 
-Moodle's web pages are JavaScript-heavy and brittle. The mobile app uses a stable JSON Web Services API exposed at `/webservice/rest/server.php` — it's faster, more reliable, and gives structured data directly. Same surface every other Moodle mobile app uses.
+```bash
+python moodle_sync_legacy.py
+```
+
+Subsequent syncs can use the CLI wrapper around the cached token:
+
+```bash
+moodle sync
+```
+
+## Index downloaded PDFs
+
+By default the indexer reads:
+
+```text
+~/Desktop/moodle-sync/courses
+```
+
+and writes:
+
+```text
+~/Desktop/moodle-sync/moodle_search.sqlite3
+```
+
+Run:
+
+```bash
+moodle index
+```
+
+Override paths when needed:
+
+```bash
+moodle --courses-dir ./courses --db ./moodle_search.sqlite3 index
+```
+
+Example output:
+
+```text
+Indexed 1/1 documents, 1 pages, 1 chunks
+DB: /tmp/search.sqlite3
+Embeddings: hashing-fallback
+```
+
+If extraction quality is weak, M1 reports coverage gaps instead of pretending OCR happened:
+
+```text
+12 pages need OCR; search coverage incomplete
+```
+
+## Search
+
+```bash
+moodle search "semantic search"
+```
+
+Terminal output shows top citations, score breakdown, and highlighted snippets:
+
+```text
+Query: semantic search
+╭─ #1 ─────────────────────────────────────────────────────────────╮
+│ COMP1008 · Lecture 03 · retrieval.pdf · p. 1                    │
+│ score=0.0328 bm25_rank=1 vector_rank=1 vector=0.408             │
+│ Vector databases and semantic search help retrieve lecture ...   │
+╰──────────────────────────────────────────────────────────────────╯
+```
+
+Machine-readable output for later Discord / Notion / Q&A work:
+
+```bash
+moodle search "semantic search" --json
+```
+
+```json
+{
+  "query": "semantic search",
+  "results": [
+    {
+      "citation": "COMP1008 · Lecture 03 · retrieval.pdf · p. 1",
+      "module": "COMP1008",
+      "lecture": "Lecture 03",
+      "filename": "retrieval.pdf",
+      "page": 1,
+      "scores": {
+        "fused": 0.03278688524590164,
+        "bm25_rank": 1,
+        "vector_rank": 1
+      }
+    }
+  ]
+}
+```
+
+## Configuration
+
+Environment variables:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `MOODLE_COURSES_DIR` | `~/Desktop/moodle-sync/courses` | Downloaded course files |
+| `MOODLE_SEARCH_DB` | `~/Desktop/moodle-sync/moodle_search.sqlite3` | SQLite search index |
+| `MOODLE_EMBEDDING_PROVIDER` | `local` | M1 supports local only |
+| `MOODLE_EMBEDDING_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | Local MiniLM model name |
+
+## Tests
+
+```bash
+pip install -e '.[dev]'
+pytest -q
+```
 
 ## Notes
 
-- Built for the Nottingham Moodle instance (`moodle.nottingham.ac.uk`). The token endpoint and Web Services API are standard Moodle features so it should work on any Moodle install with mobile services enabled, but folder names and module codes are Nottingham-specific and would need adapting.
-- Credentials are never written to disk in plaintext. Only the issued token is cached.
-- Courses, sync state, and cached lecture files are git-ignored.
+- Built for the Nottingham Moodle instance (`moodle.nottingham.ac.uk`).
+- Credentials are never written to disk in plaintext. Only the issued Moodle token is cached.
+- Courses, sync state, local DBs, and downloaded lecture files are git-ignored.
+- OCR execution, LLM Q&A, FSRS, Discord delivery, Notion sync, calendar work, past-paper ingestion, reranking, and hosted UI are deliberately out of M1.
 
 ## License
 

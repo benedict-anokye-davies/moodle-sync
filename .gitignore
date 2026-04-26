@@ -5,8 +5,13 @@
 
 # Sync state and cache
 sync_state.json
+*.sqlite3
+*.db
 __pycache__/
 *.pyc
+build/
+dist/
+*.egg-info/
 
 # Downloaded course content
 courses/
@@ -24,6 +29,7 @@ quick_sync.py
 PLAN.md
 V3-DELTA.md
 v2-plan.md
+handoffs/
 
 update_submission_log.py
 
