@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "moodle-sync"
+version = "0.3.0"
+description = "Local Moodle sync plus citation-first lecture search."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "requests>=2.31",
+    "PyMuPDF>=1.23",
+    "rich>=13.7",
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+embeddings = ["sentence-transformers>=2.7"]
+dev = ["pytest>=8.0", "reportlab>=4.0"]
+
+[project.scripts]
+moodle = "moodle_sync.cli:main"
+
+[tool.setuptools]
+packages = ["moodle_sync"]
+py-modules = [
+    "browser_scraper",
+    "check_new",
+    "daily_sync",
+    "moodle_sync_legacy",
+    "notion_helper",
+    "scrape_deadlines",
+]
